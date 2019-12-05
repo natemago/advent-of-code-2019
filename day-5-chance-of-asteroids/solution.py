@@ -4,38 +4,93 @@ inst_set = {
         'params': 3,
     },
     2: {
-        'mnem': 'add',
+        'mnem': 'mul',
         'params': 3,
     },
     3: {
-        'mnem': 'add',
-        'params': 3,
+        'mnem': 'read',
+        'params': 1,
     },
     4: {
-        'mnem': 'add',
-        'params': 3,
+        'mnem': 'out',
+        'params': 1,
     },
     5: {
-        'mnem': 'add',
-        'params': 3,
+        'mnem': 'jmp',
+        'params': 2,
     },
     6: {
-        'mnem': 'add',
-        'params': 3,
+        'mnem': 'jmpz',
+        'params': 2,
     },
     7: {
-        'mnem': 'add',
+        'mnem': 'lt',
         'params': 3,
     },
     8: {
-        'mnem': 'add',
+        'mnem': 'eq',
         'params': 3,
+    },
+    99: {
+        'mnem': 'halt',
+        'params': 0,
     },
 }
 
 
 class Disassembler:
-    pass
+    
+    def __init__(self, mem):
+        self.mem = mem
+    
+    def _decode_instr(self, instr):
+        op = instr%100
+        instr //= 100
+        a = instr%10
+        instr //= 10
+        b = instr%10
+        instr //= 10
+        c = instr%10
+        instr //= 10
+
+        return (op, a, b, c)
+    
+    def _disassemble_at(self, ip):
+        instr = self.mem.get(ip)
+        if instr is None:
+            return ('', -1)
+        if instr == 0:
+            return ('[N/A] OP is zero (?)', 0)
+        op, ma, mb, mc = self._decode_instr(instr)
+        isdef = inst_set.get(op)
+        if not isdef:
+            return ('[N/A] Invalid OP: {}'.format(op), 0)
+        modes = [ma, mb, mc]
+        params = []
+        for i in range(0, isdef['params']):
+            param = self.mem.get(ip + i + 1)
+            param = '0x{:04X}'.format(param)
+            if not modes[i]:
+                param = '@' + param
+            else:
+                param = ' ' + param
+            params.append(param)
+        return ('{:5} {}'.format(isdef['mnem'], ', '.join(params)), isdef['params'])
+    
+    def disassemble(self, start, op_count=1):
+        ip = start
+        n = op_count or 0
+        while n or op_count is None:
+            disasm, pc = self._disassemble_at(ip)
+            n -= 1
+            ip += pc + 1
+            yield (disasm, ip)
+            if pc < 0:
+                break
+    
+    def dump_mem(self):
+        for line, address in self.disassemble(start=0, op_count=None):
+            yield '0x{:04X}: {}'.format(address, line)
 
 
 class ICC:
@@ -45,6 +100,7 @@ class ICC:
         self.ip = 0
         self.inpq = inpq or []
         self.verbose = False
+        self.disasm = Disassembler(mem)
 
     def log(self, *args):
         if self.verbose:
@@ -189,3 +245,9 @@ def part2():
 
 part1()
 part2()
+
+disasm = Disassembler(load_program('input'))
+print("============================================")
+print("PROGRAM INITIAL MEMORY DUMP:")
+print('\n'.join(disasm.dump_mem()))
+print("============================================")
