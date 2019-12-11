@@ -1,3 +1,5 @@
+from queue import Queue
+
 inst_set = {
     1: {
         'mnem': 'add',
@@ -95,14 +97,14 @@ class Disassembler:
 
 class ICC:
 
-    def __init__(self, mem, inpq=None):
+    def __init__(self, mem, inpq=None, outq=None):
         self.mem = mem
         self.ip = 0
         self.inpq = inpq or []
         self.verbose = False
         self.disasm = Disassembler(mem)
         self.base = 0
-        self.out = None
+        self.out = outq
         self._commands = {}
         self.interactive = False
         self._register_commands()
@@ -168,6 +170,10 @@ class ICC:
         return (op, a, b, c)
     
     def input(self):
+        if isinstance(self.inpq, Queue):
+            return self.inpq.get()
+        elif callable(self.inpq):
+            return self.inpq()
         if self.inpq:
             return self.inpq.pop(0)
         raise Exception('Wants to read, but input queue is empty')
@@ -202,7 +208,12 @@ class ICC:
             elif op == 4:
                 # output
                 v = self._fetch_value(values[0], modes[0])
-                self.out = v
+                if isinstance(self.out, Queue):
+                    self.out.put(v)
+                elif callable(self.out):
+                    self.out(v)
+                else:
+                    self.out = v
                 print('OUT: ', v)
             elif op == 5:
                 # jump-if-true
