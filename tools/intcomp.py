@@ -40,11 +40,43 @@ inst_set = {
 }
 
 
+variables = 'abcnmpqrstij'
+
+
+class _varnames:
+
+    def __init__(self):
+        self.used = {}
+        self.idx = 0
+    
+    def get_name(self):
+        n = variables[self.idx]
+        c = self.used.get(n, 0)
+        self.used[n] = c + 1
+        if c:
+            n = n + str(c)
+        self.idx = (self.idx + 1) % len(variables)
+        return n
+    
+
+
 class Disassembler:
     
-    def __init__(self, mem):
+    def __init__(self, mem, as_hex=False, num_padding=4, inv_as_data=True, show_comments=True):
         self.mem = mem
-    
+        self.varnames = _varnames()
+        self.variables = {}
+        self.as_hex = as_hex
+        self.num_padding = num_padding
+        self.inv_as_data = inv_as_data
+        self.show_comments = show_comments
+
+    def _format_number(self, v, padding=True):
+        fmt = '{:%dd}' % self.num_padding if padding else '{:d}'
+        if self.as_hex:
+            fmt = '{:0%dX}' % self.num_padding if padding else '{:X}'
+        return fmt.format(v)
+
     def _decode_instr(self, instr):
         op = instr%100
         instr //= 100
@@ -57,42 +89,104 @@ class Disassembler:
 
         return (op, a, b, c)
     
-    def _disassemble_at(self, ip):
-        instr = self.mem.get(ip)
-        if instr is None:
-            return ('', -1)
+    def _disassemble_param(self, param, mode):
+        if mode == 0:
+            # positional - indirect, possibly a variable
+            if param < 0:
+                return ('[{}]'.format(self._format_number(param, padding=False)), None, 0)
+            var_name = self.variables.get(param)
+            addr = self._format_number(param, padding=False)
+            if var_name is None:
+                # no such variable, create new
+                var_name = self.varnames.get_name()
+                self.variables[param] = var_name
+            return (var_name, '{}@{}'.format(var_name, addr), self.mem.get(param, 0))
+        elif mode == 1:
+            # immediate value
+            return (self._format_number(param), None, param)
+        elif mode == 2:
+            # Stack pointer
+            if param:
+                return ('[SP{}{}]'.format(
+                    '+' if param > 0 else '',
+                    self._format_number(param).strip()
+                ), None, str(param))
+            else:
+                return ('[SP]', None, 'SP')
+            return ('[SP + %d]'%param, None, str(param))
+        else:
+            return (self._format_number(param), 'Invalid parameter mode', 0)
+
+    def _disassemble_at(self, ip, dump_vars=False):
+        instr = self.mem.get(ip, 0)
         if instr == 0:
-            return ('[N/A] OP is zero (?)', 0)
+            if self.inv_as_data:
+                return (self._format_number(instr) + '  ; data', 0, {})
+            return ('[N/A] OP is zero (?)', 0, {})
         op, ma, mb, mc = self._decode_instr(instr)
         isdef = inst_set.get(op)
         if not isdef:
-            return ('[N/A] Invalid OP: {}'.format(op), 0)
+            if self.inv_as_data:
+                return (self._format_number(op) + '  ; data', 0, {})
+            return ('[N/A] Invalid OP: {}'.format(self._format_number(op)), 0, {})
         modes = [ma, mb, mc]
         params = []
+        comment = []
+        values = {}
         for i in range(0, isdef['params']):
             param = self.mem.get(ip + i + 1)
-            param = '0x{:04X}'.format(param)
-            if not modes[i]:
-                param = '@' + param
-            else:
-                param = ' ' + param
+            param, comm, value = self._disassemble_param(param, modes[i])
+            if comm:
+                comment.append(comm)
             params.append(param)
-        return ('{:5} {}'.format(isdef['mnem'], ', '.join(params)), isdef['params'])
+            values[param] = value
+        
+
+        mnemonic = isdef['mnem']
+        params_part = ', '.join(['{:>4}'.format(p) for p in params])
+        comments_part = ';  ' + ', '.join(comment) if comment else ''
+
+        asm_instr = '{:6}{}'.format(mnemonic, params_part)
+        if self.show_comments:
+            asm_instr = '{:40}{}'.format(asm_instr, comments_part)
+
+        return (asm_instr, isdef['params'], values)
     
-    def disassemble(self, start, op_count=1):
+    def disassemble(self, start, op_count=1, end=None):
         ip = start
         n = op_count or 0
         while n or op_count is None:
-            disasm, pc = self._disassemble_at(ip)
+            disasm, pc, values = self._disassemble_at(ip)
             n -= 1
+            yield (disasm, ip, values)
             ip += pc + 1
-            yield (disasm, ip)
             if pc < 0:
                 break
+            if end is not None and ip >= end:
+                break
     
+
+    def disassemble_part(self, start, end, show_address=True):
+        dump = []
+
+        for asm, addr, values in self.disassemble(start=start, end=end):
+            m = asm
+            if show_address:
+                m = '{}: {}'.format(self._format_number(addr), m)
+            
+            dump.append((m, values))
+        return dump
+    
+    def dump_one(self, address):
+        return self.disassemble_part(address, address+1)[0]
+
     def dump_mem(self):
-        for line, address in self.disassemble(start=0, op_count=None):
-            yield '0x{:04X}: {}'.format(address, line)
+        end = max([addr for addr in self.mem.keys()])
+        print('End=', end)
+        
+        for line, address,_ in self.disassemble(start=0, op_count=None, end=end):
+            yield '{}: {}'.format(self._format_number(address), line)
+
 
 
 class ICC:
@@ -157,6 +251,21 @@ class ICC:
             addr += self.base
         self.mem[addr] = value
 
+    def _disasm_curr(self):
+        decoded, values = self.disasm.dump_one(self.ip)
+        decoded_values = []
+        for k in sorted(values.keys()):
+            v = values[k]
+            if isinstance(v, str):
+                if v == 'SP':
+                    v = self.mem.get(self.base, 0)
+                else:
+                    v = self.mem.get(self.base + int(v), 0)
+            decoded_values.append('{} is {}'.format(k,v))
+        
+        return '{}\n\t{}'.format(decoded, ', '.join(decoded_values))
+
+
     def decode(self, instr):
         op = instr%100
         instr //= 100
@@ -180,9 +289,8 @@ class ICC:
 
     def execute(self):
         while True:
-            self.log('%s: '%self.ip, end='')
+            self.log(self._disasm_curr())
             op, values, modes = self.fetch()
-            self.log(op, values, modes)
             if op == 1:
                 # add
                 a = self._fetch_value(values[0], modes[0])
