@@ -191,7 +191,7 @@ class Disassembler:
 
 class ICC:
 
-    def __init__(self, mem, inpq=None, outq=None):
+    def __init__(self, mem, inpq=None, outq=None, quiet=False):
         self.mem = mem
         self.ip = 0
         self.inpq = inpq or []
@@ -201,7 +201,9 @@ class ICC:
         self.out = outq
         self._commands = {}
         self.interactive = False
+        self.quiet = quiet
         self._register_commands()
+
 
     def log(self, *args, **kwargs):
         if self.verbose:
@@ -322,7 +324,8 @@ class ICC:
                     self.out(v)
                 else:
                     self.out = v
-                print('OUT: ', v)
+                if not self.quiet:
+                    print('OUT: ', v)
             elif op == 5:
                 # jump-if-true
                 a = self._fetch_value(values[0], modes[0])
@@ -362,7 +365,8 @@ class ICC:
                 self.log('Set base: ', self.base, a, ' to ', self.base + a)
                 self.base += a
             elif op == 99:
-                print('HALT')
+                if not self.quiet:
+                    print('HALT')
                 return
             else:
                 raise Exception('Invalid opcode: ', op, values, modes)
