@@ -203,7 +203,21 @@ class ICC:
         self.interactive = False
         self.quiet = quiet
         self._register_commands()
+        self._snapshot = []
 
+    def snapshot(self):
+        mem = {}
+        mem.update(self.mem)
+        snap = (self.ip, self.base, mem)
+        self._snapshot.append(snap)
+        return snap
+
+    def reset(self):
+        if self._snapshot:
+            ip, base, mem = self._snapshot.pop()
+            self.ip = ip
+            self.base = base
+            self.mem = mem
 
     def log(self, *args, **kwargs):
         if self.verbose:
