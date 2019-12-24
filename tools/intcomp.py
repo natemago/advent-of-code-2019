@@ -135,11 +135,16 @@ class Disassembler:
         values = {}
         for i in range(0, isdef['params']):
             param = self.mem.get(ip + i + 1)
-            param, comm, value = self._disassemble_param(param, modes[i])
-            if comm:
-                comment.append(comm)
-            params.append(param)
-            values[param] = value
+            try:
+                param, comm, value = self._disassemble_param(param, modes[i])
+                if comm:
+                    comment.append(comm)
+                params.append(param)
+                values[param] = value
+            except Exception as e:
+                print('Failed to disassemble param. ' +
+                      'Was looking at {} op={}, params={}, modes={}. Error: {}'.format(ip, op, params, modes, str(e)))
+                #raise e
         
 
         mnemonic = isdef['mnem']
@@ -303,9 +308,11 @@ class ICC:
             return self.inpq.pop(0)
         raise Exception('Wants to read, but input queue is empty')
 
-    def execute(self):
-        while True:
-            self.log(self._disasm_curr())
+    def execute(self, step=False):
+        self.running = True
+        while self.running:
+            if self.verbose:
+                self.log(self._disasm_curr())
             op, values, modes = self.fetch()
             if op == 1:
                 # add
@@ -387,10 +394,19 @@ class ICC:
 
             if self.interactive:
                 self._trap()
+
+            if step:
+                break
     
+    def step(self):
+        self.execute(step=True)
+
     def add_command(self, name, handler, help=None):
         self._commands[name.lower()] = (handler, help)
     
+    def stop(self):
+        self.running = False
+
     def _trap(self):
         while True:
             inp = input('icc>')
