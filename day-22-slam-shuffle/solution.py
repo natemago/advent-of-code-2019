@@ -50,6 +50,7 @@ def part1(prog_file, deck_size):
 
 print('Part 1:', part1('input', 10007))
 
+
 ### Part 2 - Take 2
 
 def mmi(n,m):
