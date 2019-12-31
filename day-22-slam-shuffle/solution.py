@@ -55,14 +55,14 @@ print('Part 1:', part1('input', 10007))
 
 def mmi(n,m):
     '''
-    Modular multiplicative index of n (mod m).
+    Modular multiplicative inverse of n (mod m).
     Turns out is easy in python when m is prime
     '''
     return pow(n, m-2, m)
 
 def lineq(x1,c1, x2, c2, m):
     '''
-    Solve linear system of 2 modular equations mod m for x1,x2
+    Solve linear system of 2 modular equations mod m for a nd b
     a*x1 + b = c1
     a*x2 + b = c2
     ===============
