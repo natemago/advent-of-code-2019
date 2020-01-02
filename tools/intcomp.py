@@ -208,6 +208,7 @@ class ICC:
         self.interactive = False
         self.quiet = quiet
         self._register_commands()
+        self.on_halt = None
 
 
     def log(self, *args, **kwargs):
@@ -374,6 +375,8 @@ class ICC:
             elif op == 99:
                 if not self.quiet:
                     print('HALT')
+                if self.on_halt:
+                    self.on_halt()
                 return
             else:
                 raise Exception('Invalid opcode: ', op, values, modes)
