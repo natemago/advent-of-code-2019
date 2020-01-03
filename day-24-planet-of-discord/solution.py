@@ -50,131 +50,113 @@ def print_grid(grid):
 
 
 
-class Grids:
+def count_bugs(grid):
+    return sum([sum([1 if c == '#' else 0 for c in row]) for row in grid])
 
-    def __init__(self, lzgrid):
-        self.grids = [lzgrid]
-        self.zgrid = 0
-        self.get_grid(-1)
-        self.get_grid(1)
+class RecursivelyFoldedGrids:
+
+    def __init__(self, start_grid):
+        self.grids = {
+            0: start_grid,
+        }
     
-    def get_grid(self, level):
-        level = level + self.zgrid
-        if level >= 0 and level < len(self.grids):
-            return self.grids[level]
-        if level == -1:
-            grid = [['.' for i in range(0, 5)] for j in range(0, 5)]
+    def grid_at(self, level):
+        grid = self.grids.get(level)
+        if not grid:
+            grid = [['.' for i in range(0, 5)] for _ in range(0, 5)]
             grid[2][2] = '?'
-            self.grids = [grid] + self.grids
-            self.zgrid += 1
-            return grid
-        if level < -1:
-            raise Exception('Level too low: ' + str(level))
-        if level == len(self.grids):
-            grid = [['.' for i in range(0, 5)] for j in range(0, 5)]
-            grid[2][2] = '?'
-            self.grids.append(grid)
-            return grid
-        raise Exception('Level too high: ' + str(level))
-
-    def get_grid_side(self, level, side):
-        grid = self.get_grid(level)
-        if side == 'top':
-            return grid[0]
-        if side == 'left':
-            return [grid[i][0] for i in range(0, 5)]
-        if side == 'right':
-            return [grid[i][4] for i in range(0, 5)]
-        if side == 'bottom':
-            return grid[4]
-        raise Exception('Invalid grid side: ' + side)
-
-    def get_adjacent(self, level, x, y):
-        adj = []
-        grid = self.get_grid(level)
-        for dx, dy, inside_grid_side, up_level in [
-            (-1, 0, 'right', (1, 2)),
-            (0, 1, 'bottom', (2, 1)),
-            (1, 0, 'left', (3, 2)),
-            (0, -1, 'top', (2, 3))]:
-            xx, yy = dx + x, dy + y
-            if xx >= 0 and xx < 5 and yy >= 0 and yy < 5:
-                curr = grid[yy][xx]
-                if curr == '?':
-                    # plus the side of the top level grid
-                    adj += self.get_grid_side(level + 1, inside_grid_side)
+            self.grids[level] = grid
+        return grid
+    
+    def get_adjacent(self, x,y, level):
+        grid = self.grid_at(level)
+        adjacent = []
+        for xx, yy, up_level, down_level in [
+            (x-1, y, 'right', (1, 2)),
+            (x+1, y, 'left', (3, 2)),
+            (x, y-1, 'down', (2, 1)),
+            (x, y+1, 'up', (2, 3)),
+            ]:
+            if (xx, yy) == (2,2):
+                # go level up (the nested grid)
+                nested = self.grid_at(level + 1)
+                if up_level == 'left':
+                    # print('  ..',x,y,level, '@',xx,yy,'+adj=',[nested[i][0] for i in range(0, 5)])
+                    # print('  ..',level +1, nested)
+                    # print(' .....')
+                    adjacent += [nested[i][0] for i in range(0, 5)]
+                elif up_level == 'right':
+                    adjacent += [nested[i][4] for i in range(0, 5)]
+                elif up_level == 'down':
+                    adjacent += nested[4]
                 else:
-                    adj.append(curr)
+                    adjacent += nested[0]
+            elif xx < 0 or xx > 4 or yy < 0 or yy > 4:
+                # outside this rectangle (from the grid encasing this grid)
+                encasing = self.grid_at(level - 1)
+                ex, ey = down_level
+                adjacent.append(encasing[ey][ex])
             else:
-                # get the tile from the grid containing this grid
-                top_grid = self.get_grid(level-1)
-                tx, ty = up_level
-                adj.append(top_grid[ty][tx])
-        
-        return adj
-
-    def bug_rule(self, tile, adjacent):
-        if tile == '?':
-            return None # skip
-        bugs = sum([1 if t == '#' else 0 for t in adjacent])
-        if tile == '#':
-            if bugs == 0 or bugs > 1:
-                return '.'
-        elif tile == '.':
-            if bugs in [1,2]:
-                return '#'
-        return tile
+                adjacent.append(grid[yy][xx])
+        return adjacent
     
-    def next_iteration(self, level):
+    def next_minute_at_level(self, level):
         ng = []
-        grid = self.get_grid(level)
-        for y in range(0, len(grid)):
+        grid = self.grid_at(level)
+
+        for y in range(0, 5):
             row = []
-            for x in range(0, len(grid[y])):
-                if x == 2 and y == 2:
+            for x in range(0, 5):
+                if (x, y) == (2, 2):
                     row.append('?')
                     continue
-                adjacent = self.get_adjacent(level, x, y)
                 tile = grid[y][x]
-                row.append(self.bug_rule(tile, adjacent))
+                adjacent = self.get_adjacent(x, y, level)
+                bugs = sum([1 if t == '#' else 0 for t in adjacent])
+                if tile == '#':
+                    if bugs == 0 or bugs > 1:
+                        row.append('.')
+                        continue
+                elif tile == '.':
+                    if bugs in [1,2]:
+                        row.append('#')
+                        continue
+                row.append(tile)
             ng.append(row)
-        return ng
-    
-    def next_phase(self):
-        grids = []
-        # calculate level zero
-        grids.append(self.next_iteration(0))
 
-        # calculate up
-        i = self.zgrid
-        level = 1
-        for i in range(self.zgrid + 1, len(self.grids)):
-            grids.append(self.next_iteration(level))
-            level += 1
-        
-        i = self.zgrid - 1
-        level = -1
-        while i >= 0:
-            grids += [self.next_iteration(level)]
-            level -= 1
+        return ng
+
+    def next_minute(self):
+        levels = sorted(self.grids.keys())
+        grids = {
+            0: self.next_minute_at_level(0),
+        }
+
+        i = -1
+        while True:
+            grid = self.next_minute_at_level(i)
+            if count_bugs(grid) == 0 and i < min(levels):
+                break
+            grids[i] = grid
             i -= 1
         
-        if len(self.grids) - len(grids) != 2:
-            # we have more grids than expected?
-            raise Exception('Currently having %d grids and there are new %d grids' % (en(self.grids), len(grids)))
+        i = 1
+        while True:
+            grid = self.next_minute_at_level(i)
+            if count_bugs(grid) == 0 and i > max(levels):
+                break
+            grids[i] = grid
+            i += 1
+        self.grids.update(grids)
     
-        # replace the grids with the new state
-        for i in range(0, len(grids)):
-            self.grids[i+1] = grids[i]
-
-    def get_number_of_bugs(self):
-        count = 0
-        for grid in self.grids:
-            for row in grid:
-                for c in row:
+    def bugs_count(self):
+        bugs = 0
+        for _, grid in self.grids.items():
+            for r in grid:
+                for c in r:
                     if c == '#':
-                        count += 1
-        return count
+                        bugs += 1
+        return bugs
 
 
 def part1(inpf):
@@ -194,22 +176,15 @@ def part1(inpf):
         count += 1
         print(count)
 
+
+
 def part2(inpf, iterations):
-    zg = load_input(inpf)
-    zg[2][2] = '?'
-    grids = Grids(zg)
+    grids = RecursivelyFoldedGrids(load_input(inpf))
 
     for i in range(0, iterations):
-        print('Phase', i)
-        grids.next_phase()
+        grids.next_minute()
+    
+    return grids.bugs_count()
 
-    i = 0
-    for grid in grids.grids:
-        print('Level: ', i - grids.zgrid)
-        print_grid(grid)
-        print('---------')
-        i += 1
-    return grids.get_number_of_bugs()
-
-#print('Part 1:', part1('input'))
-print('Part 2:', part2('test_input', 1))
+print('Part 1:', part1('input'))
+print('Part 2:', part2('input', 200))
