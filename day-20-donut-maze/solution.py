@@ -164,6 +164,9 @@ class G:
         self.edges = {}
     
     def add_vertex(self, n):
+        if isinstance(n, V):
+            self.vertices[n.n] = n
+            return n
         v = V(n)
         self.vertices[n] = v
         return v
@@ -171,8 +174,15 @@ class G:
     def vertex(self, n):
         return self.vertices[n]
     
-    def add_edge(self, a, b):
-        edge = E(a, b)
+    def remove_vertex(self, v):
+        if v.n not in self.vertices:
+            return
+        del self.vertices[v.n]
+        
+        self.edges = {vxs:edge for vxs, edge in filter(lambda vs: v not in vs, self.edges.items())}
+
+    def add_edge(self, a, b, length=None):
+        edge = E(a, b, length)
         if self.edges.get((a,b)):
             ex = self.edges[(a,b)]
             a.out_edges.remove(ex)
@@ -182,11 +192,25 @@ class G:
         b.in_edges.append(edge)
         return edge
 
+    def clone(self):
+        cl = G()
+
+        for n, v in self.vertices.items():
+            cv = V(n, v.type)
+            cl.add_vertex(cv)
+        
+        for vxs, edge in self.edges.items():
+            va, vb = vxs
+            ce = cl.add_edge(cl.vertex(va.n), cl.vertex(vb.n))
+            ce.length = edge.length
+
+        return cl
+
     def __repr__(self):
         return '{} vertices, {} edges'.format(len(self.vertices), len(self.edges))
 
 
-def build_graph(inpf):
+def build_graph(inpf, use_portals=True):
     grid, portals, dmap, dtypes = load_input(inpf)
     graph = G()
 
@@ -207,19 +231,162 @@ def build_graph(inpf):
     for name, door in doors.items():
         x, y  = door
         for xx, yy, path_len in reach_doors(x, y, grid, dmap):
-            other = portals.get((x,y))
-            if other == (xx, yy):
-                continue
+            if use_portals:
+                other = portals.get((x,y))
+                if other == (xx, yy):
+                    continue
             edge = graph.add_edge(graph.vertex(name), graph.vertex(rdoors[(xx, yy)]))
             edge.length = path_len
     
-    # add portals as edges with 0 length
-    for a,b in portals.items():
-        va = graph.vertex(rdoors[a])
-        vb = graph.vertex(rdoors[b])
-        edge = graph.add_edge(va, vb)
-        edge.length = 1
+    if use_portals:
+        # add portals as edges with 0 length
+        for a,b in portals.items():
+            va = graph.vertex(rdoors[a])
+            vb = graph.vertex(rdoors[b])
+            edge = graph.add_edge(va, vb)
+            edge.length = 1
     
+    return graph
+
+
+def build_multilevel_graph(inpf, levels):
+    '''
+
+
+    1.BB.in.outer          1.BB.in.inner
+    1.BB.out.outer         1.BB.out.inner
+
+    1.BB.in.outer --> 1.BB.out.inner
+    1.BB.in.inner --> 1.BB.out.outer
+
+
+    --------------------------------------
+
+    1.BB.in.outer  -->   1.CC.
+
+
+    '''
+    grid, portals, dmap, dtypes = load_input(inpf)
+
+    tunnels = {}
+    for door, _ in dmap.items():
+        door = door[0:2]
+        if door not in ['AA', 'BB']:
+            tunnels[door + '0'] = door + '1'
+            tunnels[door + '1'] = door + '0'
+
+    og = build_graph(inpf, False)
+    graph = G()
+
+    # def _get_outer_vertex(g, n):
+    #     v = g.vertex(n)
+    #     if v.type != 'outer':
+    #         raise Exception('not outer: ' + v)
+    #     vx = V(n, v.type)
+    #     reachable_vertices = []
+    #     for edge in v.out_edges:
+    #         ov = edge.b
+    #         reachable_vertices.append((ov.n, ov.type, edge.length))
+        
+    #     return (vx, reachable_vertices)
+    
+
+    # aa, reachable = _get_outer_vertex(og, 'AA')
+
+    # graph.add_vertex(aa)
+    # for n, tp, length in reachable:
+    #     if tp == 'inner':
+    #         v_in = V(n+'.in', 'inner')
+    #         v_out = V(n+'.out', 'inner')
+    #         graph.add_vertex(v_in)
+    #         graph.add_vertex(v_out)
+    #         graph.add_edge(aa, v_out, length)
+    #         graph.add_edge(v_in, aa, length)
+    
+    level = 1
+    while level < levels:
+        for _, v in og.vertices.items():
+            if v.n in ['AA', 'ZZ']:
+                continue
+            graph.add_vertex(V('{}.{}.in'.format(level, v.n), v.type))
+            graph.add_vertex(V('{}.{}.out'.format(level, v.n), v.type))
+        
+        for _, edge in og.edges.items():
+            a = edge.a
+            b = edge.b
+
+
+            if a.n in ('AA', 'ZZ') or b.n in ('AA', 'ZZ'):
+                continue
+            if a.type == b.type:
+                # in -> out and in -> in
+                graph.add_edge(graph.vertex('{}.{}.in'.format(level, a.n)),
+                            graph.vertex('{}.{}.out'.format(level, b.n)),
+                            edge.length)
+                graph.add_edge(graph.vertex('{}.{}.in'.format(level, a.n)),
+                            graph.vertex('{}.{}.in'.format(level, b.n)),
+                            edge.length)
+                graph.add_edge(graph.vertex('{}.{}.in'.format(level, b.n)),
+                            graph.vertex('{}.{}.out'.format(level, a.n)),
+                            edge.length)
+                graph.add_edge(graph.vertex('{}.{}.in'.format(level, b.n)),
+                            graph.vertex('{}.{}.in'.format(level, a.n)),
+                            edge.length)
+            elif a.type == 'outer':
+                graph.add_edge(
+                    graph.vertex('{}.{}.in'.format(level, a.n)),
+                    graph.vertex('{}.{}.out'.format(level, b.n)),
+                    edge.length)
+                graph.add_edge(
+                    graph.vertex('{}.{}.in'.format(level, b.n)),
+                    graph.vertex('{}.{}.out'.format(level, a.n)),
+                    edge.length)
+                if level > 1:
+                    prev_n = tunnels[a.n]
+                    graph.add_edge(
+                        graph.vertex('{}.{}.out'.format(level-1, prev_n)),
+                        graph.vertex('{}.{}.in'.format(level, a.n)),
+                        1
+                    )
+                    graph.add_edge(
+                        graph.vertex('{}.{}.out'.format(level, a.n)),
+                        graph.vertex('{}.{}.in'.format(level-1, prev_n)),
+                        1
+                    )
+            else:
+                pass
+        
+        level += 1
+
+
+    aa = og.vertex('AA')
+    a = graph.add_vertex(V('AA', 'outer'))
+    for edge in aa.out_edges:
+        b = edge.b
+        if b.type == 'inner':
+            graph.add_edge(
+                a,
+                graph.vertex('1.{}.in'.format(b.n)),
+                edge.length + 1
+            )
+    
+    zz = og.vertex('ZZ')
+    z = graph.add_vertex(V('ZZ', 'outer'))
+    for edge in zz.in_edges:
+        a = edge.a
+        if a.type == 'inner':
+            graph.add_edge(
+                graph.vertex('1.{}.out'.format(a.n)),
+                z,
+                edge.length + 1
+            )
+
+    for _, v in graph.vertices.items():
+        print(v)
+    
+    for _, edge in graph.edges.items():
+        print(edge)
+
     return graph
 
 
@@ -252,28 +419,12 @@ def dijkstra(graph):
     
 
 
+input_file = 'test_input'
 
-grid, portals, dmap, dtypes = load_input('input')
-
-# l = 'a'
-# for _,p in dmap.items():
-#     x,y= p[0]
-#     grid[y][x] = l
-#     if len(p) > 1:
-#         x,y = p[1]
-#         grid[y][x] = l
-
-#     l = chr(ord(l) + 1)
-
-
-for row in grid:
-    print(''.join(row))
-
-print('{} doors, {} portals'.format(len(dmap), len(portals)))
-
-ax, ay = dmap['AA'][0]
-print(reach_doors(ax, ay, grid, dmap))
-
-graph = build_graph('input')
+graph = build_graph(input_file)
 print(graph)
 print('Part 1:', dijkstra(graph))
+
+mg = build_multilevel_graph(input_file, 2)
+print(mg)
+print('Part 2:', dijkstra(mg))
