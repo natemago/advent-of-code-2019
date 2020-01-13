@@ -26,11 +26,6 @@ def load_input(inpf):
                     doors.append((i+2, y, door, 'inner'))
                 else:
                     doors.append((i-1, y, door, 'inner'))
-
-                # if i == 0 or (i+2 < len(row) and row[i+2] == '.'):
-                #     doors.append((i + 2, y, door))
-                # elif i == len(row) - 2 or (i > 0 and row[i-1] == '.'):
-                #     doors.append((i-1, y, door))
         y += 1
 
     for x in range(0, len(grid[0])):
@@ -46,10 +41,6 @@ def load_input(inpf):
                 else:
                     doors.append((x, y-1, door, 'inner'))
 
-                # if y == 0 or (y+2 < len(grid) and grid[y+2][x] == '.'):
-                #     doors.append((x, y + 2, door))
-                # elif y == len(grid) - 2 or (y > 0 and grid[y-1][x] == '.'):
-                #     doors.append((x, y - 1, door))
     door_map = {}
     door_types = {}
     for x, y, door, tp in doors:
@@ -250,22 +241,6 @@ def build_graph(inpf, use_portals=True):
 
 
 def build_multilevel_graph(inpf, levels):
-    '''
-
-
-    1.BB.in.outer          1.BB.in.inner
-    1.BB.out.outer         1.BB.out.inner
-
-    1.BB.in.outer --> 1.BB.out.inner
-    1.BB.in.inner --> 1.BB.out.outer
-
-
-    --------------------------------------
-
-    1.BB.in.outer  -->   1.CC.
-
-
-    '''
     grid, portals, dmap, dtypes = load_input(inpf)
 
     tunnels = {}
@@ -278,38 +253,13 @@ def build_multilevel_graph(inpf, levels):
     og = build_graph(inpf, False)
     graph = G()
 
-    # def _get_outer_vertex(g, n):
-    #     v = g.vertex(n)
-    #     if v.type != 'outer':
-    #         raise Exception('not outer: ' + v)
-    #     vx = V(n, v.type)
-    #     reachable_vertices = []
-    #     for edge in v.out_edges:
-    #         ov = edge.b
-    #         reachable_vertices.append((ov.n, ov.type, edge.length))
-        
-    #     return (vx, reachable_vertices)
-    
-
-    # aa, reachable = _get_outer_vertex(og, 'AA')
-
-    # graph.add_vertex(aa)
-    # for n, tp, length in reachable:
-    #     if tp == 'inner':
-    #         v_in = V(n+'.in', 'inner')
-    #         v_out = V(n+'.out', 'inner')
-    #         graph.add_vertex(v_in)
-    #         graph.add_vertex(v_out)
-    #         graph.add_edge(aa, v_out, length)
-    #         graph.add_edge(v_in, aa, length)
     
     level = 1
     while level < levels:
         for _, v in og.vertices.items():
             if v.n in ['AA', 'ZZ']:
                 continue
-            graph.add_vertex(V('{}.{}.in'.format(level, v.n), v.type))
-            graph.add_vertex(V('{}.{}.out'.format(level, v.n), v.type))
+            graph.add_vertex(V('{}.{}'.format(v.n, level), v.type))
         
         for _, edge in og.edges.items():
             a = edge.a
@@ -319,38 +269,37 @@ def build_multilevel_graph(inpf, levels):
             if a.n in ('AA', 'ZZ') or b.n in ('AA', 'ZZ'):
                 continue
             if a.type == b.type:
-                # in -> out and in -> in
-                graph.add_edge(graph.vertex('{}.{}.in'.format(level, a.n)),
-                            graph.vertex('{}.{}.out'.format(level, b.n)),
-                            edge.length)
-                graph.add_edge(graph.vertex('{}.{}.in'.format(level, a.n)),
-                            graph.vertex('{}.{}.in'.format(level, b.n)),
-                            edge.length)
-                graph.add_edge(graph.vertex('{}.{}.in'.format(level, b.n)),
-                            graph.vertex('{}.{}.out'.format(level, a.n)),
-                            edge.length)
-                graph.add_edge(graph.vertex('{}.{}.in'.format(level, b.n)),
-                            graph.vertex('{}.{}.in'.format(level, a.n)),
-                            edge.length)
+                graph.add_edge(
+                    graph.vertex('{}.{}'.format(a.n, level)),
+                    graph.vertex('{}.{}'.format(b.n, level)),
+                    edge.length,
+                )
+                graph.add_edge(
+                    graph.vertex('{}.{}'.format(b.n, level)),
+                    graph.vertex('{}.{}'.format(b.n, level)),
+                    edge.length,
+                )
             elif a.type == 'outer':
                 graph.add_edge(
-                    graph.vertex('{}.{}.in'.format(level, a.n)),
-                    graph.vertex('{}.{}.out'.format(level, b.n)),
-                    edge.length)
+                    graph.vertex('{}.{}'.format(a.n, level)),
+                    graph.vertex('{}.{}'.format(b.n, level)),
+                    edge.length,
+                )
                 graph.add_edge(
-                    graph.vertex('{}.{}.in'.format(level, b.n)),
-                    graph.vertex('{}.{}.out'.format(level, a.n)),
-                    edge.length)
+                    graph.vertex('{}.{}'.format(b.n, level)),
+                    graph.vertex('{}.{}'.format(a.n, level)),
+                    edge.length,
+                )
                 if level > 1:
                     prev_n = tunnels[a.n]
                     graph.add_edge(
-                        graph.vertex('{}.{}.out'.format(level-1, prev_n)),
-                        graph.vertex('{}.{}.in'.format(level, a.n)),
+                        graph.vertex('{}.{}'.format(prev_n, level-1)),
+                        graph.vertex('{}.{}'.format(a.n, level)),
                         1
                     )
                     graph.add_edge(
-                        graph.vertex('{}.{}.out'.format(level, a.n)),
-                        graph.vertex('{}.{}.in'.format(level-1, prev_n)),
+                        graph.vertex('{}.{}'.format(a.n, level)),
+                        graph.vertex('{}.{}'.format(prev_n, level-1)),
                         1
                     )
             else:
@@ -366,9 +315,12 @@ def build_multilevel_graph(inpf, levels):
         if b.type == 'inner':
             graph.add_edge(
                 a,
-                graph.vertex('1.{}.in'.format(b.n)),
+                graph.vertex('{}.1'.format(b.n)),
                 edge.length + 1
             )
+        else:
+            pass
+
     
     zz = og.vertex('ZZ')
     z = graph.add_vertex(V('ZZ', 'outer'))
@@ -376,16 +328,12 @@ def build_multilevel_graph(inpf, levels):
         a = edge.a
         if a.type == 'inner':
             graph.add_edge(
-                graph.vertex('1.{}.out'.format(a.n)),
+                graph.vertex('{}.1'.format(a.n)),
                 z,
                 edge.length + 1
             )
-
-    for _, v in graph.vertices.items():
-        print(v)
-    
-    for _, edge in graph.edges.items():
-        print(edge)
+        else:
+            pass
 
     return graph
 
@@ -402,7 +350,7 @@ def dijkstra(graph):
     while q:
         q = sorted(q, key=lambda v: distance.get(v.n, 2**30))
         curr = q[0]
-        print(curr, curr.out_edges)
+        #print(curr, curr.out_edges)
         q = q[1:]
         if curr in visited and curr != start:
             continue
@@ -419,12 +367,12 @@ def dijkstra(graph):
     
 
 
-input_file = 'test_input'
+input_file = 'input'
 
 graph = build_graph(input_file)
 print(graph)
 print('Part 1:', dijkstra(graph))
 
-mg = build_multilevel_graph(input_file, 2)
+mg = build_multilevel_graph(input_file, 100)
 print(mg)
-print('Part 2:', dijkstra(mg))
+print('Part 2:', dijkstra(mg) - 2)  # '- 2' because I tie some extra node in the graph obviously!
