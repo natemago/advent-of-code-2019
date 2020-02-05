@@ -211,11 +211,12 @@ class ICC:
         self.on_halt = None
         self._snapshot = []
 
-    def snapshot(self):
+    def snapshot(self, save=True):
         mem = {}
         mem.update(self.mem)
         snap = (self.ip, self.base, mem)
-        self._snapshot.append(snap)
+        if save:
+            self._snapshot.append(snap)
         return snap
 
     def reset(self):
@@ -224,6 +225,12 @@ class ICC:
             self.ip = ip
             self.base = base
             self.mem = mem
+    
+    def restore(self, state):
+        ip, base, mem = state
+        self.ip = ip
+        self.base = base
+        self.mem = mem
 
     def log(self, *args, **kwargs):
         if self.verbose:
