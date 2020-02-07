@@ -1,212 +1,193 @@
 import sys
+
+
 sys.path.append('..')
 
 
 from tools.intcomp import ICC, load_program
 from queue import Queue
-from threading import Thread
-import curses
-from threading import Thread, Timer, Event
 
-class UI:
 
-    def __init__(self, x, y, width, height):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+def parse_output(buffer):
+    messages = []
+    lines = buffer.splitlines()
 
-    def draw(self, win):
-        pass
-
-class Text(UI):
-
-    def __init__(self, text, x, y, width, height):
-        super(Text, self).__init__(x,y,width,height)
-        self.text = text
-
-    def draw(self, win):
-        if isinstance(self.text, list):
-            for i in range(0, min(len(self.text), self.height)):
-                win.addnstr(self.x, self.y+i, self.text[i], self.width)
-            return
-        win.addstr(self.x, self.y, self.text)
-
-class Map(Text):
-
-    def __init__(self, gmap, gport, x, y, width, height):
-        super(Map, self).__init__('', x, y, width, height)
-        self.gmap = gmap
-        self.gport = gport
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i+=1
+            continue
+        if line.startswith('=='):
+            message = {
+                'doors': [],
+                'items': [],
+                'info': [],
+                'title': line[2:-2].strip(),
+            }
+            
+            messages.append(message)
+            i += 1
+            continue
+        if line.strip() == 'Doors here lead:':
+            i += 1
+            line = lines[i].strip()
+            while line.startswith('-'):
+                message['doors'].append(line[2:].strip())
+                i += 1
+                line = lines[i].strip()
+            continue
+        if line.strip() == 'Items here:':
+            i += 1
+            line = lines[i].strip()
+            while line.startswith('-'):
+                message['items'].append(line[2:].strip())
+                i += 1
+                line = lines[i].strip()
+            continue
+        if line.strip() == 'Command?':
+            break
+        if i == 1:
+            message = {
+                'doors': [],
+                'items': [],
+                'info': [],
+            }
+            messages.append(message)
+        message['info'].append(line)
+        i+=1
     
-    def get_text(self):
-        gx, gy = self.gport
-        text = []
-        for i in range(gy, gy + self.height):
-            row = ''
-            for j in range(gx, gx + self.width):
-                row += self.gmap.get((j, i), ' ')
-            text.append(row)
-        return text
-    
-    def draw(self, win):
-        self.text = self.get_text()
-        super(Map, self).draw(win)
-
-
-class Screen:
-
-    def __init__(self):
-        self._redraw = Event()
-        self._main_loop = Thread(target=self._draw)
-        self.children = []
-        self.inp = Queue()
-    
-    def add(self, child):
-        self.children.append(child)
-
-    def draw(self, win):
-        while self._redraw.wait():
-            win.clear()
-            for ui in self.children:
-                ui.draw()
-            win.refresh()
-            try:
-                k = win.getkey()
-                self.inp.put(k)
-            except:
-                return
-
-    def _draw(self):
-        curses.wrapper(self.draw)
-    
-    def show(self):
-        self._main_loop.start()
-    
-    def refresh(self):
-        self._redraw.set()
-    
-    def get_input(self):
-        return self.inp.get()
+    return messages
 
 class Robot:
 
-    def __init__(self, prog_file, on_out=None, on_in=None):
-        self.inq = Queue()
-        self.comp = ICC(load_program(prog_file), inpq=self._on_input, outq=self._on_out, quiet=True)
-        self.pos = (0,0)
-        self.on_out = on_out
-        self.on_in = on_in
-        self.comp.on_halt = lambda: print('>>GAME OVER<<')
-
-    def _on_input(self):
-        if self.on_in:
-            v = self.on_in()
-            if v is not None:
-                self.inq.put(v)
-        return self.inq.get()
+    def __init__(self, program, interactive=False, handler=None):
+        self.comp = ICC(load_program(program),
+                        quiet=True,
+                        inpq=self.on_inp,
+                        outq=self.on_out)
+        self.comp.on_halt = self.on_halt
+        self.outbuff = []
+        self.inpbuff = []
+        self.inpq = Queue()
+        self.messages = None
+        self.interactive = interactive
+        self.handler = handler
     
-    def _on_out(self, v):
-        if self.on_out:
-            self.on_out(chr(v))
-            return
-        print(chr(v), end='')
+    def on_out(self, v):
+        self.outbuff.append(chr(v))
+    
+    def on_inp(self):
+        if self.outbuff:
+            self.messages = parse_output(''.join(self.outbuff))
+            if self.interactive:
+                for message in self.messages:
+                    print('\n'.join(['%s: %s'%(k,v) for k,v in message.items()]))
+            self.outbuff = []
+        if not self.inpbuff:
+            if self.interactive:
+                self.inpbuff = input('CMD>') + '\n'
+            else:
+                if self.handler:
+                    self.inpbuff = self.handler(self.messages)
+                else:
+                    raise Exception('input buffer empty')
+        c = self.inpbuff[0]
+        self.inpbuff = self.inpbuff[1:]
+        return ord(c)
+    
+    def on_halt(self):
+        self.messages = parse_output(''.join(self.outbuff))
+        if self.interactive:
+            for message in self.messages:
+                print('\n'.join(['%s: %s'%(k,v) for k,v in message.items()]))
+        self.outbuff = []
+        if self.handler:
+            self.handler(self.messages, halt=True)
 
     def run(self):
         self.comp.execute()
-
-    def send_cmd(self, cmd):
-        for c in cmd + '\n':
-            self.inq.put(ord(c))
-
-    def go(self, direction):
-        self.send_cmd(direction)
     
-    def take(self, item):
-        self.send_cmd('take ' + item)
+    def snapshot(self):
+        return self.comp.snapshot(save=False)
     
-    def drop(self, item):
-        self.send_cmd('drop ' + item)
+    def send(self, command):
+        self.inpbuff = [ord(c) for c in command] + [10]
+
+
+from threading import Thread
+from random import shuffle, randint
+from time import sleep
+
+
+items = []
+visited = set()
+directions = []
+take = []
+drop = []
+
+def _handler(message, halt=None):
+    print('\n'.join(['%s: %s' % e for e in message.items()]))
+    print('Items:', items)
+    print('Visited:', visited)
+    print('-------------------')
+    if halt:
+        print('Game over')
+        return
+    if message.get('info'):
+        info = ''.join(message['info']).lower()
+        if 'password' in info or 'pass' in info:
+            input('Maybe password?')
+        
+        if 'droids on this ship are lighter than the detected value' in info:
+            if items:
+                shuffle(items)
+                for i in range(0, randint(0, len(items))):
+                    item = items[i]
+                    drop.append(item)
+                return
+    #sleep(0.1)
+    if drop:
+        if message.get('title', '') != 'Pressure-Sensitive Floor':
+            shuffle(drop)
+            item = drop.pop()
+            items.remove(item)
+            return 'drop ' + item + '\n'
+    if message.get('title'):
+        visited.add(message['title'])
+
+        if message['doors']:
+            directions.clear()
+            for d in message['doors']:
+                directions.append(d)
+        
+        if message['items']:
+            take.clear()
+            itms = message['items']
+            shuffle(itms)
+            for i in range(0, randint(1, len(itms))):
+                take.append(itms[i])
+    if take:
+        item = take.pop()
+        if item not in ['photons', 'molten lava', 
+                        'giant electromagnet', 'infinite loop',
+                        'escape pod']:
+            items.append(item)
+            return 'take ' + item + '\n'
+    if directions:
+        shuffle(directions)
+        return directions.pop() + '\n'
+
+def handler(messages, halt=None):
+    command = None
+    for message in messages:
+        cmd = _handler(message, halt)
+        if cmd:
+            command = cmd
     
-    def inventory(self):
-        self.send_cmd('inv')
-
-class DisplayTerminal:
-    
-    def __init__(self, robot_program):
-        self.robot = Robot(robot_program, self._on_out, self._on_in)
-        self.robot.comp.on_halt = self._on_halt
-        self.stdin_thread = Thread(target=self._read_user_input)
-        self.stdin_thread.start()
-        self.map = {}
-        self.pos = (0,0)
-        self.outbuff = ''
-        self.doors = []
-        self.items = []
-        self.screen = Screen()
-        self.screen.add(Text('Exploratory Robot: ', 0, 0, 130, 1))
-        self.screen.add(Map(self.map, (-25, -15), 0, 1, 50, 30))
-
-    def _on_out(self, c):
-        self.outbuff += c
-    
-    def _on_in(self):
-        if self.outbuff:
-            self.output_available(self.outbuff)
-            self.outbuff = ''
-
-    def output_available(self, buffer):
-        self._parse_buffer(buffer)
-
-    def _parse_buffer(self):
-        buff = buffer.strip()
-        directions = False
-        items = False
-        self.doors = []
-        self.items = []
-        if not buff.strip().endswith('Command?'):
-            print(buff)
-            return
-        for line in buff.splitlines():
-            line = line.strip()
-            if line == 'Doors here lead:':
-                directions = True
-                items = False
-                continue
-            if line == 'Items here:':
-                directions = False
-                items = True
-                continue
-            if line == 'Command?':
-                break
-            if directions:
-                if line:
-                    self.doors.append(line[2:])
-                    continue
-            elif items:
-                if line:
-                    self.items.append(line[2:])
-                    continue
-
-    def _on_halt(self):
-        if self.outbuff:
-            print(self.outbuff)
-        print('GAME OVER')
-
-    def _read_user_input(self):
-        while True:
-            inp = input('>')
-            self.robot.send_cmd(inp)
-    
-    def run_robot(self):
-        self.robot.run()
+    return command
 
 
 
-
-# terminal = DisplayTerminal('input')
-# terminal.run_robot()
-
-screen = Screen()
-screen.show()
-screen.refresh()
+robot = Robot('input', handler=handler)
+robot.run()
