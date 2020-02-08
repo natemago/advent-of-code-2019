@@ -1,0 +1,81 @@
+a = antenna
+b = hologram
+c = hypercube
+d = mouse
+e = semiconductor
+f = shell
+g = spool of cat6
+h = whirled peas
+
+
+sum all > t
+
+
+ a, c,d,e,h < b,f,g
+
+
+a + b > t
+a + c < t
+a + d < t
+a + e < t
+a + f > t
+a + g > t
+a + h < t
+
+a + b > t
+t <= a + b
+
+a + c < t <= a + b
+a + c < a + b
+
+c < b
+d < b
+e < b
+h < b
+---------
+
+a + f > t
+t <= a + f
+a + c < t
+c < f
+
+---------
+
+b + c > t
+t <= b + c
+a + c < t <= b + c
+a < b
+
+-------
+
+b + d > t
+t <= b+d
+
+------
+b + e > t
+t <= b + e
+a + e < t <= b + e
+a < b
+
+---------
+
+b + f > t
+b + g > t
+b + h > t
+
+---------
+
+c + d < t
+c + e < t
+c + f > t
+
+
+--------
+t <= b + c
+c + d < t <= b + c => d < b
+
+d < b
+e < b
+
+=======
+solution: a + c + d + e

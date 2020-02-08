@@ -125,12 +125,19 @@ visited = set()
 directions = []
 take = []
 drop = []
+manual = False
 
 def _handler(message, halt=None):
+    global manual
     print('\n'.join(['%s: %s' % e for e in message.items()]))
     print('Items:', items)
     print('Visited:', visited)
     print('-------------------')
+    if manual:
+        v = input('>>').strip()
+        if not v:
+            return
+        return v + '\n'
     if halt:
         print('Game over')
         return
@@ -147,7 +154,7 @@ def _handler(message, halt=None):
                     drop.append(item)
                 return
     #sleep(0.1)
-    if drop:
+    if drop and False:
         if message.get('title', '') != 'Pressure-Sensitive Floor':
             shuffle(drop)
             item = drop.pop()
@@ -155,6 +162,12 @@ def _handler(message, halt=None):
             return 'drop ' + item + '\n'
     if message.get('title'):
         visited.add(message['title'])
+
+        if 'checkpoint' in message['title'].lower():
+            if len(items) > 7:
+                manual = True
+                print('** Switching to manual')
+                return _handler(message, halt)
 
         if message['doors']:
             directions.clear()
